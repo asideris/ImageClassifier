@@ -38,6 +38,14 @@ pip install torch torchvision matplotlib numpy mlflow pillow flask
 
 ### Usage
 
+#### MLflow
+
+You can start MLflow UI in a terminal as follows:
+
+```bash
+mlflow ui --port 5000
+```
+
 #### Training Mode (classifier.py)
 
 ```bash
