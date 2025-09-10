@@ -1,126 +1,51 @@
 import torch
+import os
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 import torchvision
-import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
-import matplotlib.pyplot as plt
-import numpy as np
 import mlflow
 import mlflow.pytorch
 import argparse
-import os
-from PIL import Image
-import multiprocessing
 import gc
 
+# Import utilities
+from utils import (
+    get_device, CIFAR10_CLASSES, get_train_transforms, get_test_transforms,
+    get_dataloader_config, setup_mlflow, ensure_models_directory,
+    compile_model_if_available, CIFAR10Net
+)
+
 # Set device
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = get_device()
 print(f'Using device: {device}')
 
 # Create models directory if it doesn't exist
-models_dir = 'models'
-os.makedirs(models_dir, exist_ok=True)
+models_dir = ensure_models_directory()
 
 # MLflow setup
-mlflow.set_experiment("CIFAR10-Classification")
-mlflow.set_tracking_uri("file:./mlruns")
+setup_mlflow("CIFAR10-Classification")
 
 # CIFAR-10 classes
-classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+classes = CIFAR10_CLASSES
 
 # Data preprocessing and loading
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-])
+transform_train = get_train_transforms()
+transform_test = get_test_transforms()
 
 # Optimized data loading configuration
-num_workers = min(multiprocessing.cpu_count(), 8)  # Use available CPUs but cap at 8
-pin_memory = torch.cuda.is_available()  # Use pin_memory for GPU
+dataloader_config = get_dataloader_config()
+num_workers = dataloader_config['num_workers']
+pin_memory = dataloader_config['pin_memory']
 
 # Dataset loading will be done per mode to avoid unnecessary loading
 
-# CNN Model Definition
-class CIFAR10Net(nn.Module):
-    def __init__(self):
-        super(CIFAR10Net, self).__init__()
-        # First convolutional block
-        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 32, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.pool1 = nn.MaxPool2d(2, 2)
-        self.dropout1 = nn.Dropout(0.25)
-        
-        # Second convolutional block
-        self.conv3 = nn.Conv2d(32, 64, 3, padding=1)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.conv4 = nn.Conv2d(64, 64, 3, padding=1)
-        self.bn4 = nn.BatchNorm2d(64)
-        self.pool2 = nn.MaxPool2d(2, 2)
-        self.dropout2 = nn.Dropout(0.25)
-        
-        # Third convolutional block
-        self.conv5 = nn.Conv2d(64, 128, 3, padding=1)
-        self.bn5 = nn.BatchNorm2d(128)
-        self.conv6 = nn.Conv2d(128, 128, 3, padding=1)
-        self.bn6 = nn.BatchNorm2d(128)
-        self.pool3 = nn.MaxPool2d(2, 2)
-        self.dropout3 = nn.Dropout(0.25)
-        
-        # Fully connected layers
-        self.fc1 = nn.Linear(128 * 4 * 4, 512)
-        self.dropout4 = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(512, 10)
-        
-    def forward(self, x):
-        # First block
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = self.pool1(x)
-        x = self.dropout1(x)
-        
-        # Second block
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = F.relu(self.bn4(self.conv4(x)))
-        x = self.pool2(x)
-        x = self.dropout2(x)
-        
-        # Third block
-        x = F.relu(self.bn5(self.conv5(x)))
-        x = F.relu(self.bn6(self.conv6(x)))
-        x = self.pool3(x)
-        x = self.dropout3(x)
-        
-        # Flatten and fully connected
-        x = x.view(-1, 128 * 4 * 4)
-        x = F.relu(self.fc1(x))
-        x = self.dropout4(x)
-        x = self.fc2(x)
-        
-        return x
 
 # Initialize model, loss function, and optimiser
 model = CIFAR10Net().to(device)
-
-# Compile model for faster inference (PyTorch 2.0+)
-if hasattr(torch, 'compile') and torch.cuda.is_available():
-    try:
-        model = torch.compile(model)
-        print("Model compiled for faster inference")
-    except Exception as e:
-        print(f"Model compilation not available: {e}")
+model = compile_model_if_available(model)
 
 criterion = nn.CrossEntropyLoss()
 optimiser = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
@@ -209,139 +134,6 @@ def train_model(model, trainloader, criterion, optimiser, num_epochs=20, use_amp
     
     return train_losses, train_accuracies
 
-# Fine-tuning function with layer freezing and specialized parameters
-def finetune_model(model, trainloader, criterion, optimiser, num_epochs=10, freeze_layers=None, use_amp=True, accumulate_grad_steps=1):
-    model.train()
-    
-    # Freeze specified layers if provided
-    if freeze_layers:
-        freeze_layer_groups(model, freeze_layers)
-        print(f"Frozen layer groups: {freeze_layers}")
-    
-    train_losses = []
-    train_accuracies = []
-    
-    # Initialize mixed precision scaler
-    scaler = torch.cuda.amp.GradScaler() if use_amp and torch.cuda.is_available() else None
-    
-    # Log hyperparameters for fine-tuning
-    mlflow.log_param("finetune_batch_size", trainloader.batch_size)
-    mlflow.log_param("finetune_learning_rate", optimiser.param_groups[0]['lr'])
-    mlflow.log_param("finetune_weight_decay", optimiser.param_groups[0]['weight_decay'])
-    mlflow.log_param("finetune_num_epochs", num_epochs)
-    mlflow.log_param("finetune_optimizer", optimiser.__class__.__name__)
-    mlflow.log_param("frozen_layers", str(freeze_layers) if freeze_layers else "none")
-    mlflow.log_param("finetune_mixed_precision", use_amp and torch.cuda.is_available())
-    mlflow.log_param("finetune_gradient_accumulation_steps", accumulate_grad_steps)
-    
-    # Count trainable parameters
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    total_params = sum(p.numel() for p in model.parameters())
-    mlflow.log_param("trainable_parameters", trainable_params)
-    mlflow.log_param("frozen_parameters", total_params - trainable_params)
-    
-    print(f"Fine-tuning with {trainable_params}/{total_params} trainable parameters")
-    
-    for epoch in range(num_epochs):
-        running_loss = 0.0
-        correct = 0
-        total = 0
-        
-        for i, (inputs, labels) in enumerate(trainloader):
-            inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
-            
-            # Mixed precision forward pass
-            if scaler is not None:
-                with torch.cuda.amp.autocast():
-                    outputs = model(inputs)
-                    loss = criterion(outputs, labels) / accumulate_grad_steps
-                
-                # Scaled backward pass
-                scaler.scale(loss).backward()
-                
-                # Gradient accumulation
-                if (i + 1) % accumulate_grad_steps == 0:
-                    scaler.step(optimiser)
-                    scaler.update()
-                    optimiser.zero_grad()
-            else:
-                # Regular forward pass
-                outputs = model(inputs)
-                loss = criterion(outputs, labels) / accumulate_grad_steps
-                
-                loss.backward()
-                
-                # Gradient accumulation
-                if (i + 1) % accumulate_grad_steps == 0:
-                    optimiser.step()
-                    optimiser.zero_grad()
-            
-            # Statistics
-            running_loss += loss.item() * accumulate_grad_steps
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-            
-            if i % 100 == 99:  # Print every 100 mini-batches
-                print(f'Fine-tune Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{len(trainloader)}], '
-                      f'Loss: {running_loss/100:.4f}')
-                running_loss = 0.0
-        
-        # Calculate epoch accuracy
-        epoch_acc = 100 * correct / total
-        epoch_loss = running_loss / len(trainloader)
-        train_accuracies.append(epoch_acc)
-        train_losses.append(epoch_loss)
-        
-        print(f'Fine-tune Epoch [{epoch+1}/{num_epochs}] - Training Accuracy: {epoch_acc:.2f}%')
-        
-        # Log metrics to MLflow
-        mlflow.log_metric("finetune_train_loss", epoch_loss, step=epoch)
-        mlflow.log_metric("finetune_train_accuracy", epoch_acc, step=epoch)
-        mlflow.log_metric("finetune_learning_rate", optimiser.param_groups[0]['lr'], step=epoch)
-        
-        # Step the scheduler if it exists
-        if hasattr(optimiser, 'scheduler') and optimiser.scheduler is not None:
-            optimiser.scheduler.step()
-    
-    return train_losses, train_accuracies
-
-# Layer freezing utility function
-def freeze_layer_groups(model, freeze_groups):
-    """
-    Freeze specific layer groups in the model.
-    freeze_groups can be: 'conv1', 'conv2', 'conv3', 'fc', or combinations like ['conv1', 'conv2']
-    """
-    if isinstance(freeze_groups, str):
-        freeze_groups = [freeze_groups]
-    
-    for group in freeze_groups:
-        if group == 'conv1':
-            # Freeze first convolutional block
-            for param in [model.conv1.parameters(), model.bn1.parameters(), 
-                         model.conv2.parameters(), model.bn2.parameters()]:
-                for p in param:
-                    p.requires_grad = False
-        elif group == 'conv2':
-            # Freeze second convolutional block
-            for param in [model.conv3.parameters(), model.bn3.parameters(), 
-                         model.conv4.parameters(), model.bn4.parameters()]:
-                for p in param:
-                    p.requires_grad = False
-        elif group == 'conv3':
-            # Freeze third convolutional block
-            for param in [model.conv5.parameters(), model.bn5.parameters(), 
-                         model.conv6.parameters(), model.bn6.parameters()]:
-                for p in param:
-                    p.requires_grad = False
-        elif group == 'fc':
-            # Freeze fully connected layers
-            for param in [model.fc1.parameters(), model.fc2.parameters()]:
-                for p in param:
-                    p.requires_grad = False
-        else:
-            print(f"Warning: Unknown layer group '{group}' ignored")
-
 # Testing function
 def test_model(model, testloader, log_to_mlflow=True):
     model.eval()
@@ -386,122 +178,14 @@ def test_model(model, testloader, log_to_mlflow=True):
     return overall_accuracy
 
 
-# Smart resize function that preserves aspect ratio
-def smart_resize_with_padding(image, target_size=32):
-    """Resize image to target size while preserving aspect ratio using padding"""
-    # Get original dimensions
-    width, height = image.size
-    
-    # Calculate scaling factor to fit within target size
-    scale = min(target_size / width, target_size / height)
-    
-    # Calculate new dimensions
-    new_width = int(width * scale)
-    new_height = int(height * scale)
-    
-    # Resize image maintaining aspect ratio
-    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    
-    # Create new image with target size and paste resized image in center
-    new_image = Image.new('RGB', (target_size, target_size), (128, 128, 128))  # Gray padding
-    
-    # Calculate position to center the image
-    x = (target_size - new_width) // 2
-    y = (target_size - new_height) // 2
-    
-    new_image.paste(image, (x, y))
-    return new_image
-
-
-# Cached model for repeated inference
-_cached_model = None
-_cached_model_path = None
-
-def load_model_cached(model_path, device):
-    """Load model with caching for repeated inference"""
-    global _cached_model, _cached_model_path
-    
-    if _cached_model is None or _cached_model_path != model_path:
-        print(f"Loading model from '{model_path}'...")
-        model = CIFAR10Net().to(device)
-        
-        # Load state dict and handle compiled model keys
-        state_dict = torch.load(model_path, map_location=device)
-        
-        # Remove '_orig_mod.' prefix if present (from compiled models)
-        if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
-            new_state_dict = {}
-            for key, value in state_dict.items():
-                new_key = key.replace('_orig_mod.', '') if key.startswith('_orig_mod.') else key
-                new_state_dict[new_key] = value
-            state_dict = new_state_dict
-        
-        model.load_state_dict(state_dict)
-        model.eval()
-        
-        # Compile model for faster inference if available
-        if hasattr(torch, 'compile'):
-            try:
-                model = torch.compile(model)
-            except:
-                pass
-        
-        _cached_model = model
-        _cached_model_path = model_path
-        print("Model loaded and cached")
-    
-    return _cached_model
-
-# Inference function for single images
-def inference(model_path, image_path, device):
-    """Run inference on a single image with model caching"""
-    # Load the trained model (cached)
-    model = load_model_cached(model_path, device)
-    
-    # Load image
-    image = Image.open(image_path).convert('RGB')
-    
-    # Smart resize with padding to preserve aspect ratio
-    image = smart_resize_with_padding(image, target_size=32)
-    
-    # Apply normalization (same as training)
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    ])
-    
-    image_tensor = transform(image).unsqueeze(0).to(device)
-    
-    # Run inference
-    with torch.no_grad():
-        output = model(image_tensor)
-        probabilities = F.softmax(output, dim=1)
-        predicted_class = torch.argmax(output, dim=1).item()
-        confidence = probabilities[0][predicted_class].item()
-    
-    print(f"Predicted class: {classes[predicted_class]}")
-    print(f"Confidence: {confidence:.4f}")
-    
-    # Show top 3 predictions
-    top3_prob, top3_classes = torch.topk(probabilities, 3)
-    print("\nTop 3 predictions:")
-    for i in range(3):
-        class_idx = top3_classes[0][i].item()
-        prob = top3_prob[0][i].item()
-        print(f"{i+1}. {classes[class_idx]}: {prob:.4f}")
-    
-    return predicted_class, confidence
-
 
 # Main execution
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='CIFAR-10 Image Classifier')
-    parser.add_argument('--mode', type=str, choices=['train', 'test', 'inference', 'finetune'], required=True,
-                       help='Mode: train (train model), test (test existing model), inference (classify single image), finetune (fine-tune existing model)')
+    parser.add_argument('--mode', type=str, choices=['train', 'test'], required=True,
+                       help='Mode: train (train model), test (test existing model)')
     parser.add_argument('--model-path', type=str, default='models/cifar10_model.pth',
                        help='Path to model file (default: models/cifar10_model.pth)')
-    parser.add_argument('--image-path', type=str,
-                       help='Path to image for inference mode')
     parser.add_argument('--epochs', type=int, default=20,
                        help='Number of training epochs (default: 20)')
     parser.add_argument('--batch-size', type=int, default=128,
@@ -510,17 +194,6 @@ if __name__ == "__main__":
                        help='Disable mixed precision training')
     parser.add_argument('--accumulate-grad-steps', type=int, default=1,
                        help='Gradient accumulation steps (default: 1)')
-    
-    # Fine-tuning specific arguments
-    parser.add_argument('--finetune-lr', type=float, default=0.0001,
-                       help='Learning rate for fine-tuning (default: 0.0001)')
-    parser.add_argument('--finetune-epochs', type=int, default=10,
-                       help='Number of fine-tuning epochs (default: 10)')
-    parser.add_argument('--freeze-layers', type=str, nargs='+', 
-                       choices=['conv1', 'conv2', 'conv3', 'fc'],
-                       help='Layer groups to freeze during fine-tuning (conv1, conv2, conv3, fc)')
-    parser.add_argument('--finetune-output', type=str, default='models/cifar10_model_finetuned.pth',
-                       help='Output path for fine-tuned model (default: models/cifar10_model_finetuned.pth)')
     
     args = parser.parse_args()
     
@@ -536,15 +209,11 @@ if __name__ == "__main__":
         testset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                                download=True, transform=transform_test)
         print(f"Test dataset loaded: {len(testset)} samples")
-        testloader = DataLoader(testset, batch_size=100, shuffle=False, 
-                               num_workers=num_workers, pin_memory=pin_memory,
-                               persistent_workers=True if num_workers > 0 else False)
+        testloader = DataLoader(testset, batch_size=100, shuffle=False, **dataloader_config)
         
         # Create optimized data loaders with custom batch size
         train_batch_size = args.batch_size
-        trainloader_custom = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, 
-                                       num_workers=num_workers, pin_memory=pin_memory, 
-                                       persistent_workers=True if num_workers > 0 else False)
+        trainloader_custom = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, **dataloader_config)
         
         # Training mode
         with mlflow.start_run():
@@ -580,98 +249,6 @@ if __name__ == "__main__":
             
             print(f"MLflow run completed. Run ID: {mlflow.active_run().info.run_id}")
     
-    elif args.mode == 'finetune':
-        # Fine-tuning mode
-        if not os.path.exists(args.model_path):
-            print(f"Error: Model file '{args.model_path}' not found. Please train the model first or specify correct path.")
-            exit(1)
-        
-        # Load CIFAR-10 training dataset
-        print("Loading training dataset...")
-        trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                                download=True, transform=transform_train)
-        print(f"Training dataset loaded: {len(trainset)} samples")
-        
-        # Load CIFAR-10 test dataset for evaluation
-        print("Loading test dataset...")
-        testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                               download=True, transform=transform_test)
-        print(f"Test dataset loaded: {len(testset)} samples")
-        testloader = DataLoader(testset, batch_size=100, shuffle=False, 
-                               num_workers=num_workers, pin_memory=pin_memory,
-                               persistent_workers=True if num_workers > 0 else False)
-        
-        # Create data loader for fine-tuning
-        finetune_batch_size = args.batch_size
-        trainloader_finetune = DataLoader(trainset, batch_size=finetune_batch_size, shuffle=True, 
-                                         num_workers=num_workers, pin_memory=pin_memory, 
-                                         persistent_workers=True if num_workers > 0 else False)
-        
-        # Load pre-trained model
-        print(f"Loading pre-trained model from '{args.model_path}'...")
-        model.load_state_dict(torch.load(args.model_path, map_location=device))
-        print("Pre-trained model loaded successfully")
-        
-        # Test pre-trained model performance before fine-tuning
-        print("Testing pre-trained model performance...")
-        initial_accuracy = test_model(model, testloader, log_to_mlflow=False)
-        print(f"Pre-trained model accuracy: {initial_accuracy:.2f}%")
-        
-        # Create new optimizer with fine-tuning learning rate
-        finetune_optimizer = optim.Adam(model.parameters(), lr=args.finetune_lr, weight_decay=1e-4)
-        finetune_scheduler = optim.lr_scheduler.StepLR(finetune_optimizer, step_size=5, gamma=0.5)
-        
-        # Fine-tuning mode
-        with mlflow.start_run():
-            print("Starting fine-tuning...")
-            print(f"Fine-tuning learning rate: {args.finetune_lr}")
-            print(f"Fine-tuning epochs: {args.finetune_epochs}")
-            print(f"Batch size: {finetune_batch_size}")
-            print(f"Mixed precision: {not args.no_amp and torch.cuda.is_available()}")
-            print(f"Gradient accumulation steps: {args.accumulate_grad_steps}")
-            if args.freeze_layers:
-                print(f"Freezing layer groups: {args.freeze_layers}")
-            else:
-                print("No layers frozen - training all parameters")
-            
-            # Log initial performance
-            mlflow.log_param("base_model_path", args.model_path)
-            mlflow.log_param("initial_test_accuracy", initial_accuracy)
-            mlflow.log_param("finetune_mode", True)
-            
-            # Fine-tune the model
-            train_losses, train_accuracies = finetune_model(
-                model, trainloader_finetune, criterion, finetune_optimizer, 
-                num_epochs=args.finetune_epochs,
-                freeze_layers=args.freeze_layers,
-                use_amp=not args.no_amp,
-                accumulate_grad_steps=args.accumulate_grad_steps
-            )
-            
-            # Test the fine-tuned model
-            print("Testing fine-tuned model...")
-            final_accuracy = test_model(model, testloader)
-            
-            # Log final performance
-            mlflow.log_metric("final_test_accuracy", final_accuracy)
-            mlflow.log_metric("accuracy_improvement", final_accuracy - initial_accuracy)
-            
-            # Save the fine-tuned model
-            torch.save(model.state_dict(), args.finetune_output)
-            print(f"Fine-tuned model saved as '{args.finetune_output}'")
-            
-            # Log the fine-tuned model to MLflow
-            mlflow.pytorch.log_model(model, "finetuned_model")
-            
-            # Log artifacts to MLflow
-            mlflow.log_artifact(args.finetune_output)
-            
-            print(f"\nFine-tuning Results:")
-            print(f"  Initial accuracy: {initial_accuracy:.2f}%")
-            print(f"  Final accuracy: {final_accuracy:.2f}%")
-            print(f"  Improvement: {final_accuracy - initial_accuracy:.2f}%")
-            print(f"MLflow run completed. Run ID: {mlflow.active_run().info.run_id}")
-    
     elif args.mode == 'test':
         # Testing mode
         if not os.path.exists(args.model_path):
@@ -683,9 +260,7 @@ if __name__ == "__main__":
         testset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                                download=True, transform=transform_test)
         print(f"Test dataset loaded: {len(testset)} samples")
-        testloader = DataLoader(testset, batch_size=100, shuffle=False, 
-                               num_workers=num_workers, pin_memory=pin_memory,
-                               persistent_workers=True if num_workers > 0 else False)
+        testloader = DataLoader(testset, batch_size=100, shuffle=False, **dataloader_config)
         
         print(f"Loading model from '{args.model_path}'...")
         model.load_state_dict(torch.load(args.model_path, map_location=device))
@@ -698,24 +273,3 @@ if __name__ == "__main__":
             torch.cuda.empty_cache()
         gc.collect()
     
-    elif args.mode == 'inference':
-        # Inference mode
-        if not args.image_path:
-            print("Error: --image-path is required for inference mode")
-            exit(1)
-        
-        if not os.path.exists(args.model_path):
-            print(f"Error: Model file '{args.model_path}' not found. Please train the model first or specify correct path.")
-            exit(1)
-        
-        if not os.path.exists(args.image_path):
-            print(f"Error: Image file '{args.image_path}' not found.")
-            exit(1)
-        
-        print(f"Running inference on '{args.image_path}' using model '{args.model_path}'...")
-        predicted_class, confidence = inference(args.model_path, args.image_path, device)
-        
-        # Explicit cleanup to reduce exit delay
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()

@@ -2,14 +2,23 @@
 
 A high-performance PyTorch-based image classifier for CIFAR-10 dataset with multiple operation modes and extensive optimizations.
 
+## Project Structure
+
+- **`classifier.py`**: Main training and testing script for the original 10-class CIFAR-10 classification
+- **`prediction.py`**: Standalone prediction/inference script for classifying individual images
+- **`fineTunner.py`**: Fine-tuning script that adapts the trained model to predict regrouped classes (Vehicles, Animals, Other)
+- **`utils.py`**: Shared utilities, constants, and the CIFAR10Net model definition
+
 ## Features
 
 - **Multiple Modes**: Train, test, inference, and fine-tuning capabilities
 - **Optimized Performance**: Mixed precision training, model compilation, and optimized data loading
 - **Smart Image Processing**: Aspect ratio preservation with intelligent padding
 - **MLflow Integration**: Comprehensive experiment tracking
-- **Model Caching**: Efficient inference with model caching
+- **Model Caching**: Efficient inference with model caching in prediction script
+- **Fine-tuning Support**: Adapt trained models for new class groupings with transfer learning
 - **Flexible Configuration**: Extensive command-line options
+- **Modular Design**: Shared utilities and clean separation of concerns
 
 ## Quick Start
 
@@ -26,7 +35,7 @@ pip install torch torchvision matplotlib numpy mlflow pillow
 
 ### Usage
 
-#### Training Mode
+#### Training Mode (classifier.py)
 ```bash
 # Basic training
 python classifier.py --mode train
@@ -35,52 +44,59 @@ python classifier.py --mode train
 python classifier.py --mode train --batch-size 256 --epochs 50 --accumulate-grad-steps 2
 ```
 
-#### Testing Mode
+#### Testing Mode (classifier.py)
 ```bash
 # Test existing model
-python classifier.py --mode test --model-path cifar10_model.pth
+python classifier.py --mode test --model-path models/cifar10_model.pth
 ```
 
-#### Inference Mode
+#### Image Prediction (prediction.py)
 ```bash
 # Classify a single image
-python classifier.py --mode inference --image-path your_image.jpg --model-path cifar10_model.pth
+python prediction.py --image-path your_image.jpg --model-path models/cifar10_model.pth
 ```
 
-#### Fine-tuning Mode
+#### Fine-tuning for Regrouped Classes (fineTunner.py)
 ```bash
-# Basic fine-tuning (all layers trainable)
-python classifier.py --mode finetune --model-path cifar10_model.pth
-
-# Fine-tune with frozen early layers (transfer learning approach)
-python classifier.py --mode finetune --model-path cifar10_model.pth --freeze-layers conv1 conv2
+# Basic fine-tuning for regrouped classes (Vehicles, Animals, Other)
+python fineTunner.py --model-path models/cifar10_model.pth
 
 # Advanced fine-tuning with custom parameters
-python classifier.py --mode finetune --model-path cifar10_model.pth \
-    --finetune-lr 0.00005 --finetune-epochs 15 --batch-size 64 \
-    --freeze-layers conv1 --finetune-output my_finetuned_model.pth
+python fineTunner.py --model-path models/cifar10_model.pth \
+    --epochs 10 --batch-size 64 --learning-rate 0.0005 \
+    --output-path models/my_regrouped_model.pth
 ```
 
 ## Command Line Options
 
+### classifier.py Options
+
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--mode` | Operation mode: train, test, inference, finetune | Required |
-| `--model-path` | Path to model file | cifar10_model.pth |
-| `--image-path` | Path to image for inference | Required for inference |
+| `--mode` | Operation mode: train, test | Required |
+| `--model-path` | Path to model file | models/cifar10_model.pth |
 | `--epochs` | Number of training epochs | 20 |
 | `--batch-size` | Training batch size | 128 |
 | `--no-amp` | Disable mixed precision training | False |
 | `--accumulate-grad-steps` | Gradient accumulation steps | 1 |
 
-### Fine-tuning Specific Options
+### prediction.py Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--finetune-lr` | Learning rate for fine-tuning | 0.0001 |
-| `--finetune-epochs` | Number of fine-tuning epochs | 10 |
-| `--freeze-layers` | Layer groups to freeze (conv1, conv2, conv3, fc) | None |
-| `--finetune-output` | Output path for fine-tuned model | cifar10_model_finetuned.pth |
+| `--model-path` | Path to trained model file | models/cifar10_model.pth |
+| `--image-path` | Path to image for prediction | Required |
+
+### fineTunner.py Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--model-path` | Path to pretrained CIFAR-10 model | models/cifar10_model.pth |
+| `--output-path` | Output path for fine-tuned model | models/cifar10_regrouped_model.pth |
+| `--epochs` | Number of fine-tuning epochs | 5 |
+| `--batch-size` | Batch size for training | 128 |
+| `--learning-rate` | Learning rate for fine-tuning | 0.001 |
+| `--no-amp` | Disable mixed precision training | False |
 
 ## Performance Optimizations
 
@@ -95,13 +111,16 @@ See [optimizations.md](optimizations.md) for detailed performance analysis.
 
 ## Fine-tuning Features
 
-Fine-tuning allows you to improve a pre-trained model's performance with:
+The `fineTunner.py` script provides specialized fine-tuning for class regrouping:
 
-- **Layer Freezing**: Freeze early layers and train only later ones for transfer learning
-- **Lower Learning Rates**: Prevent catastrophic forgetting with reduced LR (default: 0.0001)
-- **Specialized Tracking**: Separate MLflow experiments for fine-tuning runs
-- **Performance Comparison**: Shows initial vs final accuracy and improvement
-- **Flexible Configuration**: All training optimizations available (mixed precision, gradient accumulation)
+- **Class Regrouping**: Adapts the 10-class CIFAR-10 model to predict broader categories:
+  - **Vehicles**: plane, car, ship, truck
+  - **Animals**: bird, cat, deer, dog, frog, horse
+  - **Other**: (reserved for future extensions)
+- **Transfer Learning**: Freezes convolutional layers and trains only fully connected layers
+- **Reduced Parameters**: Trains only ~6% of total parameters for efficient fine-tuning
+- **Specialized Tracking**: Separate MLflow experiments for regrouped classification
+- **Performance Monitoring**: Tracks accuracy improvements for the new class structure
 
 ## Model Architecture
 
@@ -111,8 +130,9 @@ Fine-tuning allows you to improve a pre-trained model's performance with:
 - **Pooling**: Max pooling for spatial reduction
 - **Classification**: 10-class output for CIFAR-10 categories
 
-## CIFAR-10 Classes
+## Classification Categories
 
+### Original CIFAR-10 Classes (classifier.py)
 The model classifies images into 10 categories:
 - Plane
 - Car  
@@ -125,11 +145,18 @@ The model classifies images into 10 categories:
 - Ship
 - Truck
 
+### Regrouped Classes (fineTunner.py)
+The fine-tuned model classifies images into 3 broader categories:
+- **Vehicles**: plane, car, ship, truck
+- **Animals**: bird, cat, deer, dog, frog, horse
+- **Other**: (reserved for future class additions)
+
 ## Results
 
 - **Test Accuracy**: ~84% on CIFAR-10 test set
 - **Training Time**: ~25 minutes for 20 epochs (with optimizations)
 - **Inference Speed**: <50ms per image (after model loading)
+- **Prediction Accuracy**: Individual image classification with confidence scores and top-3 predictions
 
 ## Requirements
 
