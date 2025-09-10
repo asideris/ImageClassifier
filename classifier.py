@@ -45,22 +45,7 @@ transform_test = transforms.Compose([
 num_workers = min(multiprocessing.cpu_count(), 8)  # Use available CPUs but cap at 8
 pin_memory = torch.cuda.is_available()  # Use pin_memory for GPU
 
-# Load CIFAR-10 dataset
-print("Loading training dataset...")
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                        download=True, transform=transform_train)
-print(f"Training dataset loaded: {len(trainset)} samples")
-trainloader = DataLoader(trainset, batch_size=128, shuffle=True, 
-                        num_workers=num_workers, pin_memory=pin_memory, 
-                        persistent_workers=True if num_workers > 0 else False)
-
-print("Loading test dataset...")
-testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                       download=True, transform=transform_test)
-print(f"Test dataset loaded: {len(testset)} samples")
-testloader = DataLoader(testset, batch_size=100, shuffle=False, 
-                       num_workers=num_workers, pin_memory=pin_memory,
-                       persistent_workers=True if num_workers > 0 else False)
+# Dataset loading will be done per mode to avoid unnecessary loading
 
 # CNN Model Definition
 class CIFAR10Net(nn.Module):
@@ -221,7 +206,7 @@ def train_model(model, trainloader, criterion, optimiser, num_epochs=20, use_amp
     return train_losses, train_accuracies
 
 # Testing function
-def test_model(model, testloader):
+def test_model(model, testloader, log_to_mlflow=True):
     model.eval()
     correct = 0
     total = 0
@@ -248,7 +233,8 @@ def test_model(model, testloader):
     print(f'\nTest Accuracy: {overall_accuracy:.2f}%')
     
     # Log test accuracy to MLflow
-    mlflow.log_metric("test_accuracy", overall_accuracy)
+    if log_to_mlflow:
+        mlflow.log_metric("test_accuracy", overall_accuracy)
     
     # Per-class accuracy
     print('\nPer-class accuracy:')
@@ -257,7 +243,8 @@ def test_model(model, testloader):
             class_acc = 100 * class_correct[i] / class_total[i]
             print(f'{classes[i]}: {class_acc:.2f}%')
             # Log per-class accuracy to MLflow
-            mlflow.log_metric(f"test_accuracy_{classes[i]}", class_acc)
+            if log_to_mlflow:
+                mlflow.log_metric(f"test_accuracy_{classes[i]}", class_acc)
     
     return overall_accuracy
 
@@ -390,6 +377,21 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.mode == 'train':
+        # Load CIFAR-10 training dataset
+        print("Loading training dataset...")
+        trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                                download=True, transform=transform_train)
+        print(f"Training dataset loaded: {len(trainset)} samples")
+        
+        # Load CIFAR-10 test dataset for evaluation
+        print("Loading test dataset...")
+        testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                               download=True, transform=transform_test)
+        print(f"Test dataset loaded: {len(testset)} samples")
+        testloader = DataLoader(testset, batch_size=100, shuffle=False, 
+                               num_workers=num_workers, pin_memory=pin_memory,
+                               persistent_workers=True if num_workers > 0 else False)
+        
         # Create optimized data loaders with custom batch size
         train_batch_size = args.batch_size
         trainloader_custom = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, 
@@ -436,10 +438,19 @@ if __name__ == "__main__":
             print(f"Error: Model file '{args.model_path}' not found. Please train the model first or specify correct path.")
             exit(1)
         
+        # Load CIFAR-10 test dataset only
+        print("Loading test dataset...")
+        testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                               download=True, transform=transform_test)
+        print(f"Test dataset loaded: {len(testset)} samples")
+        testloader = DataLoader(testset, batch_size=100, shuffle=False, 
+                               num_workers=num_workers, pin_memory=pin_memory,
+                               persistent_workers=True if num_workers > 0 else False)
+        
         print(f"Loading model from '{args.model_path}'...")
         model.load_state_dict(torch.load(args.model_path, map_location=device))
         print("Testing model on CIFAR-10 test dataset...")
-        test_accuracy = test_model(model, testloader)
+        test_accuracy = test_model(model, testloader, log_to_mlflow=False)
         print(f"Final test accuracy: {test_accuracy:.2f}%")
         
         # Explicit cleanup to reduce exit delay
