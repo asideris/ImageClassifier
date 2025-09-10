@@ -7,6 +7,7 @@ A high-performance PyTorch-based image classifier for CIFAR-10 dataset with mult
 - **`classifier.py`**: Main training and testing script for the original 10-class CIFAR-10 classification
 - **`prediction.py`**: Standalone prediction/inference script for classifying individual images
 - **`fineTunner.py`**: Fine-tuning script that adapts the trained model to predict regrouped classes (Vehicles, Animals, Other)
+- **`server.py`**: Flask API server for image classification with REST endpoints
 - **`utils.py`**: Shared utilities, constants, and the CIFAR10Net model definition
 
 ## Features
@@ -19,6 +20,8 @@ A high-performance PyTorch-based image classifier for CIFAR-10 dataset with mult
 - **Fine-tuning Support**: Adapt trained models for new class groupings with transfer learning
 - **Flexible Configuration**: Extensive command-line options
 - **Modular Design**: Shared utilities and clean separation of concerns
+- **REST API**: Flask-based web service for remote image classification
+- **Model Auto-Detection**: Automatically detects and loads appropriate model architecture
 
 ## Quick Start
 
@@ -30,12 +33,13 @@ git clone git@github.com:asideris/ImageClassifier.git
 cd ImageClassifier
 
 # Install dependencies
-pip install torch torchvision matplotlib numpy mlflow pillow
+pip install torch torchvision matplotlib numpy mlflow pillow flask
 ```
 
 ### Usage
 
 #### Training Mode (classifier.py)
+
 ```bash
 # Basic training
 python classifier.py --mode train
@@ -45,18 +49,21 @@ python classifier.py --mode train --batch-size 256 --epochs 50 --accumulate-grad
 ```
 
 #### Testing Mode (classifier.py)
+
 ```bash
 # Test existing model
 python classifier.py --mode test --model-path models/cifar10_model.pth
 ```
 
 #### Image Prediction (prediction.py)
+
 ```bash
 # Classify a single image
 python prediction.py --image-path your_image.jpg --model-path models/cifar10_model.pth
 ```
 
 #### Fine-tuning for Regrouped Classes (fineTunner.py)
+
 ```bash
 # Basic fine-tuning for regrouped classes (Vehicles, Animals, Other)
 python fineTunner.py --model-path models/cifar10_model.pth
@@ -67,36 +74,87 @@ python fineTunner.py --model-path models/cifar10_model.pth \
     --output-path models/my_regrouped_model.pth
 ```
 
+#### API Server (server.py)
+
+```bash
+# Start the Flask API server
+python server.py
+
+# The server will be available at http://localhost:5100
+```
+
 ## Command Line Options
 
 ### classifier.py Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--mode` | Operation mode: train, test | Required |
-| `--model-path` | Path to model file | models/cifar10_model.pth |
-| `--epochs` | Number of training epochs | 20 |
-| `--batch-size` | Training batch size | 128 |
-| `--no-amp` | Disable mixed precision training | False |
-| `--accumulate-grad-steps` | Gradient accumulation steps | 1 |
+| Option                    | Description                      | Default                  |
+| ------------------------- | -------------------------------- | ------------------------ |
+| `--mode`                  | Operation mode: train, test      | Required                 |
+| `--model-path`            | Path to model file               | models/cifar10_model.pth |
+| `--epochs`                | Number of training epochs        | 20                       |
+| `--batch-size`            | Training batch size              | 128                      |
+| `--no-amp`                | Disable mixed precision training | False                    |
+| `--accumulate-grad-steps` | Gradient accumulation steps      | 1                        |
 
 ### prediction.py Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--model-path` | Path to trained model file | models/cifar10_model.pth |
-| `--image-path` | Path to image for prediction | Required |
+| Option         | Description                  | Default                  |
+| -------------- | ---------------------------- | ------------------------ |
+| `--model-path` | Path to trained model file   | models/cifar10_model.pth |
+| `--image-path` | Path to image for prediction | Required                 |
+
+### server.py API Endpoints
+
+| Endpoint         | Method | Description             |
+| ---------------- | ------ | ----------------------- |
+| `/health`        | GET    | Health check endpoint   |
+| `/models`        | GET    | List available models   |
+| `/predict`       | POST   | Single image prediction |
+| `/predict_batch` | POST   | Batch image prediction  |
+
+#### API Usage Examples
+
+**Health Check:**
+
+```bash
+curl http://localhost:5100/health
+```
+
+**List Available Models:**
+
+```bash
+curl http://localhost:5100/models
+```
+
+**Single Image Prediction (file upload):**
+
+```bash
+# Using original 10-class model
+curl -X POST -F "image=@your_image.jpg" -F "model_type=original" http://localhost:5100/predict
+
+# Using regrouped 3-class model
+curl -X POST -F "image=@your_image.jpg" -F "model_type=regrouped" http://localhost:5100/predict
+
+# Using custom model path
+curl -X POST -F "image=@your_image.jpg" -F "model_path=models/custom_model.pth" http://localhost:5100/predict
+```
+
+**Batch Prediction:**
+
+```bash
+curl -X POST -F "images=@image1.jpg" -F "images=@image2.jpg" -F "model_type=original" http://localhost:5100/predict_batch
+```
 
 ### fineTunner.py Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--model-path` | Path to pretrained CIFAR-10 model | models/cifar10_model.pth |
-| `--output-path` | Output path for fine-tuned model | models/cifar10_regrouped_model.pth |
-| `--epochs` | Number of fine-tuning epochs | 5 |
-| `--batch-size` | Batch size for training | 128 |
-| `--learning-rate` | Learning rate for fine-tuning | 0.001 |
-| `--no-amp` | Disable mixed precision training | False |
+| Option            | Description                       | Default                            |
+| ----------------- | --------------------------------- | ---------------------------------- |
+| `--model-path`    | Path to pretrained CIFAR-10 model | models/cifar10_model.pth           |
+| `--output-path`   | Output path for fine-tuned model  | models/cifar10_regrouped_model.pth |
+| `--epochs`        | Number of fine-tuning epochs      | 5                                  |
+| `--batch-size`    | Batch size for training           | 128                                |
+| `--learning-rate` | Learning rate for fine-tuning     | 0.001                              |
+| `--no-amp`        | Disable mixed precision training  | False                              |
 
 ## Performance Optimizations
 
@@ -133,9 +191,11 @@ The `fineTunner.py` script provides specialized fine-tuning for class regrouping
 ## Classification Categories
 
 ### Original CIFAR-10 Classes (classifier.py)
+
 The model classifies images into 10 categories:
+
 - Plane
-- Car  
+- Car
 - Bird
 - Cat
 - Deer
@@ -146,7 +206,9 @@ The model classifies images into 10 categories:
 - Truck
 
 ### Regrouped Classes (fineTunner.py)
+
 The fine-tuned model classifies images into 3 broader categories:
+
 - **Vehicles**: plane, car, ship, truck
 - **Animals**: bird, cat, deer, dog, frog, horse
 - **Other**: (reserved for future class additions)
@@ -167,6 +229,7 @@ The fine-tuned model classifies images into 3 broader categories:
 - numpy
 - mlflow
 - pillow
+- flask (for API server)
 - CUDA (optional, for GPU acceleration)
 
 ## License
