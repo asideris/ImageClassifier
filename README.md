@@ -232,6 +232,11 @@ The fine-tuned model classifies images into 3 broader categories:
 - flask (for API server)
 - CUDA (optional, for GPU acceleration)
 
+## Authors and acknowledgment
+
+- Archie (Human)
+- Claude Code (AI)
+
 ## License
 
 This project is open source and available under the [MIT Licence](https://opensource.org/licenses/MIT).
