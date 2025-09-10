@@ -234,4 +234,11 @@ The fine-tuned model classifies images into 3 broader categories:
 
 ## License
 
-MIT License
+This project is open source and available under the [MIT Licence](https://opensource.org/licenses/MIT).
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+# Note
+
+I am excited about how technology can help humans prosper and improve well-being for both people and the wider world. In this direction, the synergy between humans and AI shows great potential despite possible risks and ethical challenges.
+This project has been co-developed with the help of an AI coding assistant as part of my practice in interacting and collaborating with AI entities (agents, chatbots, platforms, tools, etc.). My goal is to learn firsthand what works and what does not, and how this synergy can make us more productive and knowledgeable without losing our creativity, agency, curiosity, or ethical responsibility.
