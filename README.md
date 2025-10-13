@@ -238,6 +238,16 @@ The fine-tuned model classifies images into 3 broader categories:
 - Archie (Human)
 - Claude Code (AI)
 
+### Dataset Acknowledgement
+
+This project uses the CIFAR-10 dataset:
+
+**CIFAR-10 Dataset**
+Learning Multiple Layers of Features from Tiny Images, Alex Krizhevsky, 2009.
+https://www.cs.toronto.edu/~kriz/cifar.html
+
+The CIFAR-10 dataset consists of 60000 32x32 colour images in 10 classes, with 6000 images per class. We acknowledge and thank Alex Krizhevsky, Vinod Nair, and Geoffrey Hinton for making this dataset publicly available for research and educational purposes.
+
 ## License
 
 This project is open source and available under the [MIT Licence](https://opensource.org/licenses/MIT).
