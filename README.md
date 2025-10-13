@@ -1,6 +1,6 @@
 # CIFAR-10 Image Classifier
 
-A high-performance PyTorch-based image classifier for CIFAR-10 dataset with multiple operation modes and extensive optimizations.
+A PyTorch-based image classifier for CIFAR-10 dataset with multiple operation modes and extensive optimizations.
 
 ## Project Structure
 
@@ -15,7 +15,7 @@ A high-performance PyTorch-based image classifier for CIFAR-10 dataset with mult
 - **Multiple Modes**: Train, test, inference, and fine-tuning capabilities
 - **Optimized Performance**: Mixed precision training, model compilation, and optimized data loading
 - **Smart Image Processing**: Aspect ratio preservation with intelligent padding
-- **MLflow Integration**: Comprehensive experiment tracking
+- **MLflow Integration**: Experiment tracking
 - **Model Caching**: Efficient inference with model caching in prediction script
 - **Fine-tuning Support**: Adapt trained models for new class groupings with transfer learning
 - **Flexible Configuration**: Extensive command-line options
@@ -220,13 +220,6 @@ The fine-tuned model classifies images into 3 broader categories:
 - **Vehicles**: plane, car, ship, truck
 - **Animals**: bird, cat, deer, dog, frog, horse
 - **Other**: (reserved for future class additions)
-
-## Results
-
-- **Test Accuracy**: ~84% on CIFAR-10 test set
-- **Training Time**: ~25 minutes for 20 epochs (with optimizations)
-- **Inference Speed**: <50ms per image (after model loading)
-- **Prediction Accuracy**: Individual image classification with confidence scores and top-3 predictions
 
 ## Requirements
 
