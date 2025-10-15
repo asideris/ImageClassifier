@@ -248,6 +248,18 @@ https://www.cs.toronto.edu/~kriz/cifar.html
 
 The CIFAR-10 dataset consists of 60000 32x32 colour images in 10 classes, with 6000 images per class. We acknowledge and thank Alex Krizhevsky, Vinod Nair, and Geoffrey Hinton for making this dataset publicly available for research and educational purposes.
 
+### Important Note on Dataset Quality
+
+**Data Leakage in CIFAR-10**: Research by Barz and Denzler (2020) discovered that approximately 3.3% of images in the CIFAR-10 test set have duplicates in the training set. This data leakage means:
+
+- **Performance metrics may be inflated**: Models have effectively "seen" some test examples during training
+- **True generalization ability may be lower**: Reported accuracy scores may overestimate real-world performance
+- **Comparison validity**: Results should be interpreted with this limitation in mind
+
+**Reference**: Björn Barz and Joachim Denzler, "Do We Train on Test Data? Purging CIFAR of Near-Duplicates," *Journal of Imaging* 6, no. 6 (2020): 41.
+
+Users should be aware of this issue when evaluating model performance and comparing results with other work using CIFAR-10.
+
 ## License
 
 This project is open source and available under the [MIT Licence](https://opensource.org/licenses/MIT).
